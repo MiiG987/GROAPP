@@ -68,6 +68,15 @@ class _ScannerScreenState extends State<ScannerScreen> {
         title: const Text('امسح الباركود'),
         centerTitle: true,
         actions: [
+          // زر الذهاب لقائمة المنتجات
+          IconButton(
+            icon: const Icon(Icons.list),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const ProductsListScreen()),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.flash_on),
             onPressed: () => controller.toggleTorch(),
@@ -120,7 +129,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
     );
 
     if (picked != null) {
-      // تنسيق التاريخ ليكون مناسباً للحفظ
       String formattedDate = "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
       setState(() {
         _dateController.text = formattedDate;
@@ -145,7 +153,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
     await _db.createProduct(product);
 
     if (!mounted) return;
-    Navigator.of(context).pop(); // الرجوع لشاشة الكاميرا
+    Navigator.of(context).pop();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('تم حفظ المنتج بنجاح!')),
     );
@@ -161,7 +169,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
         padding: const EdgeInsets.all(20.0),
         child: Column(
           children: [
-            // عرض الباركود الممسوح
             Card(
               child: ListTile(
                 leading: const Icon(Icons.qr_code),
@@ -197,6 +204,127 @@ class _AddProductScreenState extends State<AddProductScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// الشاشة الرئيسية لعرض قائمة المنتجات
+class ProductsListScreen extends StatefulWidget {
+  const ProductsListScreen({super.key});
+
+  @override
+  State<ProductsListScreen> createState() => _ProductsListScreenState();
+}
+
+class _ProductsListScreenState extends State<ProductsListScreen> {
+  final _db = DatabaseHelper.instance;
+
+  // دالة لحساب اللون حسب التاريخ
+  Color _getProductColor(String expiryDate) {
+    DateTime expiry = DateTime.parse(expiryDate);
+    DateTime now = DateTime.now();
+    int daysLeft = expiry.difference(now).inDays;
+
+    if (daysLeft <= 30) {
+      return Colors.red; // أقل من شهر
+    } else if (daysLeft <= 90) {
+      return Colors.amber; // أقل من 3 شهور
+    } else {
+      return Colors.green; // طبيعي
+    }
+  }
+
+  Future<void> _deleteProduct(int id) async {
+    // نافذة إدخال كلمة المرور
+    final passwordController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('تأكيد الحذف'),
+          content: TextField(
+            controller: passwordController,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: 'أدخل كلمة المرور',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('إلغاء'),
+            ),
+            TextButton(
+              onPressed: () async {
+                if (passwordController.text == '1234') {
+                  await _db.deleteProduct(id);
+                  if (!mounted) return;
+                  Navigator.of(context).pop();
+                  setState(() {}); // تحديث القائمة بعد الحذف
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('تم حذف المنتج بنجاح')),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('كلمة المرور غير صحيحة!')),
+                  );
+                }
+              },
+              child: const Text('حذف'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('قائمة المنتجات'),
+      ),
+      body: FutureBuilder<List<ProductModel>>(
+        future: _db.readAllProducts(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return const Center(child: Text('لا توجد منتجات مسجلة بعد'));
+          }
+
+          final products = snapshot.data!;
+
+          return ListView.builder(
+            itemCount: products.length,
+            itemBuilder: (context, index) {
+              final product = products[index];
+              final color = _getProductColor(product.expiryDate);
+
+              return Card(
+                color: color.withOpacity(0.2), // لون خلفية فاتح حسب الحالة
+                margin: const EdgeInsets.all(8),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: color,
+                    child: const Icon(Icons.inventory_2, color: Colors.white),
+                  ),
+                  title: Text(product.name),
+                  subtitle: Text('تاريخ الانتهاء: ${product.expiryDate}'),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: () => _deleteProduct(product.id!),
+                  ),
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }
